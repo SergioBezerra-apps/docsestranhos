@@ -13,10 +13,10 @@ from email.message import EmailMessage
 # =============================================================================
 # CONFIGURAÇÕES ( ajuste seu SMTP, usuário e senha do app )
 # =============================================================================
-SMTP_SERVER = 'smtp.gmail.com'
-SMTP_PORT = 465
-SMTP_USERNAME = 'SEU_EMAIL@gmail.com'
-SMTP_PASSWORD = 'SUA_SENHA_DE_APP'
+smtp_server = 'smtp.gmail.com'
+smtp_port = 465
+smtp_username = 'sergiolbezerralj@gmail.com'
+smtp_password = 'dimwpnhowxxeqbes'  # verifique se está correto
 
 # Lista de naturezas "habituais"
 NATUREZAS_HABITUAIS = [
