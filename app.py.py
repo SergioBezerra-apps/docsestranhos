@@ -11,14 +11,14 @@ import os
 from email.message import EmailMessage
 
 # =============================================================================
-# 1. CONFIGURAÇÕES E LISTA DE NATUREZAS HABITUAIS
+# CONFIGURAÇÕES ( ajuste seu SMTP, usuário e senha do app )
 # =============================================================================
-smtp_server = 'smtp.gmail.com'
-smtp_port = 465
-smtp_username = 'sergiolbezerralj@gmail.com'
-smtp_password = 'dimwpnhowxxeqbes'  # verifique se está correto
+SMTP_SERVER = 'smtp.gmail.com'
+SMTP_PORT = 465
+SMTP_USERNAME = 'SEU_EMAIL@gmail.com'
+SMTP_PASSWORD = 'SUA_SENHA_DE_APP'
 
-
+# Lista de naturezas "habituais"
 NATUREZAS_HABITUAIS = [
     "APOSENTADORIA",
     "CONCURSO PÚBLICO",
@@ -37,17 +37,11 @@ NATUREZAS_HABITUAIS = [
 ]
 
 # =============================================================================
-# 2. FUNÇÃO DE ENVIO DE E-MAIL COM ANEXOS (MANTIDA DA LÓGICA ANTERIOR)
+# FUNÇÃO PARA ENVIO DE EMAIL COM ANEXOS
 # =============================================================================
-def send_email_with_attachments(
-    to_emails,
-    subject,
-    body,
-    attachment_paths
-):
+def send_email_with_attachments(to_emails, subject, body, attachment_paths):
     """
-    Envia e-mail com anexos usando SSL.
-    `to_emails` deve ser lista de e-mails.
+    Envia e-mail com anexos usando SSL (biblioteca padrão).
     """
     msg = EmailMessage()
     msg['Subject'] = subject
@@ -59,12 +53,10 @@ def send_email_with_attachments(
     for path in attachment_paths:
         with open(path, 'rb') as file:
             filename = os.path.basename(path)
-            msg.add_attachment(
-                file.read(),
-                maintype='application',
-                subtype='octet-stream',
-                filename=filename
-            )
+            msg.add_attachment(file.read(),
+                               maintype='application',
+                               subtype='octet-stream',
+                               filename=filename)
 
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
@@ -81,20 +73,25 @@ def send_email_with_attachments(
         print(f"Erro geral: {e}")
 
 # =============================================================================
-# 3. APLICAÇÃO STREAMLIT
+# APLICAÇÃO STREAMLIT
 # =============================================================================
 def main():
     st.title("Filtragem de Documentos e Envio por E-mail")
     st.write("""
-    Esta aplicação:
-    1. Lê o arquivo **cap3.xlsx**.
-    2. Compara a concatenação (nrdoc-dvdoc/últimos2dígitosAno) com a coluna nrprinc.
-    3. Filtra docs principais (nrdoc <= 99999 e dctramita == 'PRINCIPAL') e verifica se o nrprinc confere.
-    4. Separa também as naturezas **não** habituais em arquivo distinto.
-    5. Gera dois arquivos .xlsx e envia para os e-mails fornecidos.
+    **Como funciona**:
+    1. Selecione um arquivo **.xlsx** (com colunas: nrdoc, dvdoc, andoc, nrprinc, dctramita, dcgrnatureza, etc.).
+    2. Informe os e-mails de destino, separados por vírgula.
+    3. Clique em **Processar e Enviar**.
+    4. A aplicação gera dois arquivos:
+       - **docs_principais.xlsx**: convergindo com a junção (nrdoc-dvdoc/últimos2dígitosAno) e filtrando (nrdoc <= 99999, dctramita='PRINCIPAL').
+       - **natureza_nao_habitual.xlsx**: processos cuja 'dcgrnatureza' não faz parte da lista de naturezas habituais.
+    5. Esses dois arquivos são enviados via e-mail.
     """)
 
-    # Campo para digitar os e-mails de destino
+    # 1) Upload do arquivo Excel
+    uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx"])
+
+    # 2) Campo para digitar e-mails
     emails_input = st.text_input(
         "Digite os e-mails de destino, separados por vírgula",
         value=""
@@ -102,38 +99,40 @@ def main():
 
     # Botão de processamento
     if st.button("Processar e Enviar E-mails"):
+        if not uploaded_file:
+            st.error("Por favor, faça o upload de um arquivo Excel (.xlsx).")
+            return
+
         if not emails_input.strip():
             st.error("Por favor, insira ao menos um endereço de e-mail.")
             return
 
-        # Separa os e-mails por vírgula
-        to_emails = [e.strip() for e in emails_input.split(",")]
+        # Converte string de e-mails em lista
+        to_emails = [email.strip() for email in emails_input.split(",")]
 
-        # Carrega o arquivo Excel
+        # 3) Ler o DataFrame a partir do arquivo enviado
         try:
-            df = pd.read_excel("cap3.xlsx")
+            df = pd.read_excel(uploaded_file)
         except Exception as e:
-            st.error(f"Erro ao ler cap3.xlsx: {e}")
+            st.error(f"Erro ao ler o arquivo: {e}")
             return
 
-        # -----------------------------------------------------------------------------
-        # Passo 1: Criar a coluna "nrprinc_formatado" concatenando nrdoc-dvdoc/yy
-        # -----------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 4) Criar a coluna "nrprinc_formatado": nrdoc-dvdoc/yy
+        # ---------------------------------------------------------------------
         def format_nrprinc(row):
-            # row["andoc"] espera-se ser 4 dígitos (ex: 2012 -> "12")
-            ano = str(row["andoc"])
-            ano2d = ano[-2:]  # Pega últimos 2 dígitos
+            ano_str = str(row["andoc"])
+            ano2d = ano_str[-2:]  # pega últimos 2 dígitos
             return f"{row['nrdoc']}-{row['dvdoc']}/{ano2d}"
 
         df["nrprinc_formatado"] = df.apply(format_nrprinc, axis=1)
 
-        # -----------------------------------------------------------------------------
-        # Passo 2: Filtrar docs principais
-        #    Regras:
-        #      - nrdoc <= 99999
-        #      - dctramita == 'PRINCIPAL'
-        #      - nrprinc_formatado == nrprinc (significa que “bateu” com a junção)
-        # -----------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 5) Filtrar "Docs Principais"
+        #     - nrdoc <= 99999
+        #     - dctramita == 'PRINCIPAL'
+        #     - nrprinc_formatado == nrprinc
+        # ---------------------------------------------------------------------
         mask_principal = (
             (df["nrdoc"] <= 99999) &
             (df["dctramita"] == "PRINCIPAL") &
@@ -141,26 +140,22 @@ def main():
         )
         df_principais = df.loc[mask_principal].copy()
 
-        # -----------------------------------------------------------------------------
-        # Passo 3: Filtrar naturezas não habituais
-        #    - Precisamos de todos os registros CUJA 'dcgrnatureza' não esteja na lista
-        #    - MAS o enunciado sugere filtrar somente na "CargaPrincipal"? Ou tudo?
-        #      Aqui, vamos assumir que é geral: se "dcgrnatureza" não estiver na lista,
-        #      vai para outro DataFrame.
-        # -----------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 6) Filtrar naturezas NÃO habituais
+        # ---------------------------------------------------------------------
         mask_nao_habitual = ~df["dcgrnatureza"].isin(NATUREZAS_HABITUAIS)
         df_nao_habitual = df.loc[mask_nao_habitual].copy()
 
-        # -----------------------------------------------------------------------------
-        # Passo 4: Gerar os dois arquivos XLSX (principal e não-habitual)
-        # -----------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 7) Gerar os dois arquivos .xlsx
+        #    Obs.: usamos nomes fixos, mas poderíamos personalizar com data/hora
+        # ---------------------------------------------------------------------
         file_principais = "docs_principais.xlsx"
         file_nao_habitual = "natureza_nao_habitual.xlsx"
 
         if not df_principais.empty:
             df_principais.to_excel(file_principais, index=False)
         else:
-            # Cria um arquivo vazio com cabeçalho, caso não haja resultados
             pd.DataFrame(columns=df.columns).to_excel(file_principais, index=False)
 
         if not df_nao_habitual.empty:
@@ -168,17 +163,17 @@ def main():
         else:
             pd.DataFrame(columns=df.columns).to_excel(file_nao_habitual, index=False)
 
-        # -----------------------------------------------------------------------------
-        # Passo 5: Enviar e-mail com dois anexos
-        # -----------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 8) Envio de e-mail
+        # ---------------------------------------------------------------------
         subject = "Resultados - DOCS PRINCIPAIS e NATUREZA NÃO HABITUAL"
         body = (
             "Segue em anexo:\n\n"
-            "1) docs_principais.xlsx => Contém os registros que batem com a junção "
-            "(nrdoc-dvdoc/yy) e que possuem nrdoc <= 99999 e dctramita='PRINCIPAL'.\n"
+            "1) docs_principais.xlsx => Registros que batem com nrdoc-dvdoc/yy, "
+            "tendo (nrdoc <= 99999) e dctramita='PRINCIPAL'.\n"
             "2) natureza_nao_habitual.xlsx => Contém processos cuja 'dcgrnatureza' "
             "não faz parte da lista de naturezas habituais.\n\n"
-            "Att,\nScript Automático"
+            "Atenciosamente,\nSistema Streamlit"
         )
 
         attachment_paths = [file_principais, file_nao_habitual]
@@ -189,10 +184,8 @@ def main():
             attachment_paths=attachment_paths
         )
 
-        # Mensagem de sucesso na tela
-        st.success("Processo concluído e e-mails enviados com sucesso!")
+        st.success("Processamento concluído e e-mails enviados com sucesso!")
 
-# Executa a aplicação streamlit
+
 if __name__ == "__main__":
     main()
-
